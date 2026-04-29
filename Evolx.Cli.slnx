@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Evolx.Cli/Evolx.Cli.csproj" />
+  </Folder>
+</Solution>
