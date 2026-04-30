@@ -42,3 +42,68 @@ internal sealed class WorkItemBatch
 {
     [JsonPropertyName("value")] public List<WorkItem> Value { get; set; } = new();
 }
+
+// ---------------------------------------------------------------- Repos / PRs
+
+public sealed class GitRepository
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("url")] public string? Url { get; set; }
+    [JsonPropertyName("webUrl")] public string? WebUrl { get; set; }
+    [JsonPropertyName("remoteUrl")] public string? RemoteUrl { get; set; }
+    [JsonPropertyName("defaultBranch")] public string? DefaultBranch { get; set; }
+    [JsonPropertyName("project")] public ProjectRef? Project { get; set; }
+}
+
+public sealed class ProjectRef
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+}
+
+internal sealed class GitRepoListResponse
+{
+    [JsonPropertyName("value")] public List<GitRepository> Value { get; set; } = new();
+}
+
+public sealed class IdentityRef
+{
+    [JsonPropertyName("id")] public string? Id { get; set; }
+    [JsonPropertyName("displayName")] public string? DisplayName { get; set; }
+    [JsonPropertyName("uniqueName")] public string? UniqueName { get; set; }
+}
+
+public sealed class PullRequest
+{
+    [JsonPropertyName("pullRequestId")] public int PullRequestId { get; set; }
+    [JsonPropertyName("title")] public string Title { get; set; } = "";
+    [JsonPropertyName("description")] public string? Description { get; set; }
+    [JsonPropertyName("status")] public string Status { get; set; } = "";
+    [JsonPropertyName("sourceRefName")] public string SourceRefName { get; set; } = "";
+    [JsonPropertyName("targetRefName")] public string TargetRefName { get; set; } = "";
+    [JsonPropertyName("createdBy")] public IdentityRef? CreatedBy { get; set; }
+    [JsonPropertyName("isDraft")] public bool IsDraft { get; set; }
+    [JsonPropertyName("repository")] public GitRepository? Repository { get; set; }
+}
+
+internal sealed class PullRequestListResponse
+{
+    [JsonPropertyName("value")] public List<PullRequest> Value { get; set; } = new();
+}
+
+/// <summary>Used to POST a new PR. Only the fields ADO needs.</summary>
+public sealed class PullRequestCreate
+{
+    [JsonPropertyName("sourceRefName")] public string SourceRefName { get; set; } = "";
+    [JsonPropertyName("targetRefName")] public string TargetRefName { get; set; } = "";
+    [JsonPropertyName("title")] public string Title { get; set; } = "";
+    [JsonPropertyName("description")] public string? Description { get; set; }
+    [JsonPropertyName("isDraft")] public bool IsDraft { get; set; }
+}
+
+internal sealed class CommentResponse
+{
+    [JsonPropertyName("id")] public int Id { get; set; }
+    [JsonPropertyName("text")] public string? Text { get; set; }
+}

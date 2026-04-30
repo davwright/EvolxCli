@@ -143,6 +143,144 @@ public sealed class AdoClient : IDisposable
         return names;
     }
 
+    /// <summary>Add a comment to a work item.</summary>
+    public async Task<int> AddCommentAsync(int workItemId, string text, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync(
+            $"{_project}/_apis/wit/workItems/{workItemId}/comments?api-version=7.1-preview.4",
+            new { text }, ct);
+        await ThrowIfErrorAsync(resp, ct);
+        var body = await resp.Content.ReadFromJsonAsync<CommentResponse>(JsonOptions, ct);
+        return body?.Id ?? 0;
+    }
+
+    /// <summary>
+    /// Link two work items.
+    /// Common rels: "System.LinkTypes.Hierarchy-Forward" (parent->child),
+    /// "System.LinkTypes.Hierarchy-Reverse" (child->parent),
+    /// "System.LinkTypes.Related", "System.LinkTypes.Dependency-forward",
+    /// "System.LinkTypes.Dependency-reverse".
+    /// </summary>
+    public Task<WorkItem> LinkWorkItemsAsync(int sourceId, int targetId, string rel, CancellationToken ct = default)
+        => UpdateWorkItemAsync(sourceId, new[]
+        {
+            new JsonPatchOp("add", "/relations/-", new
+            {
+                rel,
+                url = $"https://dev.azure.com/{_organization}/_apis/wit/workItems/{targetId}",
+            })
+        }, ct);
+
+    // ---------------------------------------------------------------- Repos
+
+    public async Task<IReadOnlyList<GitRepository>> ListRepositoriesAsync(CancellationToken ct = default)
+    {
+        var resp = await _http.GetAsync(
+            $"{_project}/_apis/git/repositories?api-version={ApiVersion}", ct);
+        await ThrowIfErrorAsync(resp, ct);
+        var body = await resp.Content.ReadFromJsonAsync<GitRepoListResponse>(JsonOptions, ct);
+        return body?.Value ?? new List<GitRepository>();
+    }
+
+    public async Task<GitRepository> GetRepositoryAsync(string nameOrId, CancellationToken ct = default)
+    {
+        var resp = await _http.GetAsync(
+            $"{_project}/_apis/git/repositories/{Uri.EscapeDataString(nameOrId)}?api-version={ApiVersion}", ct);
+        await ThrowIfErrorAsync(resp, ct);
+        return (await resp.Content.ReadFromJsonAsync<GitRepository>(JsonOptions, ct))!;
+    }
+
+    // ---------------------------------------------------------------- Pull requests
+
+    /// <summary>List PRs in a repo. Status: active | abandoned | completed | all (default active).</summary>
+    public async Task<IReadOnlyList<PullRequest>> ListPullRequestsAsync(
+        string repoNameOrId,
+        string status = "active",
+        string? creatorId = null,
+        CancellationToken ct = default)
+    {
+        var qs = new List<string> { $"searchCriteria.status={Uri.EscapeDataString(status)}" };
+        if (!string.IsNullOrWhiteSpace(creatorId)) qs.Add($"searchCriteria.creatorId={Uri.EscapeDataString(creatorId)}");
+        qs.Add($"api-version={ApiVersion}");
+
+        var resp = await _http.GetAsync(
+            $"{_project}/_apis/git/repositories/{Uri.EscapeDataString(repoNameOrId)}/pullrequests?{string.Join("&", qs)}", ct);
+        await ThrowIfErrorAsync(resp, ct);
+        var body = await resp.Content.ReadFromJsonAsync<PullRequestListResponse>(JsonOptions, ct);
+        return body?.Value ?? new List<PullRequest>();
+    }
+
+    /// <summary>List PRs across the whole project (any repo).</summary>
+    public async Task<IReadOnlyList<PullRequest>> ListProjectPullRequestsAsync(
+        string status = "active",
+        string? creatorId = null,
+        CancellationToken ct = default)
+    {
+        var qs = new List<string> { $"searchCriteria.status={Uri.EscapeDataString(status)}" };
+        if (!string.IsNullOrWhiteSpace(creatorId)) qs.Add($"searchCriteria.creatorId={Uri.EscapeDataString(creatorId)}");
+        qs.Add($"api-version={ApiVersion}");
+
+        var resp = await _http.GetAsync(
+            $"{_project}/_apis/git/pullrequests?{string.Join("&", qs)}", ct);
+        await ThrowIfErrorAsync(resp, ct);
+        var body = await resp.Content.ReadFromJsonAsync<PullRequestListResponse>(JsonOptions, ct);
+        return body?.Value ?? new List<PullRequest>();
+    }
+
+    public async Task<PullRequest> GetPullRequestAsync(int pullRequestId, CancellationToken ct = default)
+    {
+        // The project-level endpoint accepts just the PR id (no need to know the repo).
+        var resp = await _http.GetAsync(
+            $"{_project}/_apis/git/pullrequests/{pullRequestId}?api-version={ApiVersion}", ct);
+        await ThrowIfErrorAsync(resp, ct);
+        return (await resp.Content.ReadFromJsonAsync<PullRequest>(JsonOptions, ct))!;
+    }
+
+    public async Task<PullRequest> CreatePullRequestAsync(
+        string repoNameOrId,
+        string sourceBranch,
+        string targetBranch,
+        string title,
+        string? description = null,
+        bool isDraft = false,
+        CancellationToken ct = default)
+    {
+        var body = new PullRequestCreate
+        {
+            SourceRefName = sourceBranch.StartsWith("refs/heads/") ? sourceBranch : $"refs/heads/{sourceBranch}",
+            TargetRefName = targetBranch.StartsWith("refs/heads/") ? targetBranch : $"refs/heads/{targetBranch}",
+            Title = title,
+            Description = description,
+            IsDraft = isDraft,
+        };
+
+        var resp = await _http.PostAsJsonAsync(
+            $"{_project}/_apis/git/repositories/{Uri.EscapeDataString(repoNameOrId)}/pullrequests?api-version={ApiVersion}",
+            body, JsonOptions, ct);
+        await ThrowIfErrorAsync(resp, ct);
+        return (await resp.Content.ReadFromJsonAsync<PullRequest>(JsonOptions, ct))!;
+    }
+
+    /// <summary>Add a comment thread to a PR with a single comment in it (the most common need).</summary>
+    public async Task<int> AddPullRequestCommentAsync(
+        string repoNameOrId,
+        int pullRequestId,
+        string text,
+        CancellationToken ct = default)
+    {
+        var body = new
+        {
+            comments = new[] { new { parentCommentId = 0, content = text, commentType = 1 } },
+            status = 1, // active
+        };
+        var resp = await _http.PostAsJsonAsync(
+            $"{_project}/_apis/git/repositories/{Uri.EscapeDataString(repoNameOrId)}/pullRequests/{pullRequestId}/threads?api-version={ApiVersion}",
+            body, ct);
+        await ThrowIfErrorAsync(resp, ct);
+        using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        return doc.RootElement.GetProperty("id").GetInt32();
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private static async Task ThrowIfErrorAsync(HttpResponseMessage resp, CancellationToken ct)
