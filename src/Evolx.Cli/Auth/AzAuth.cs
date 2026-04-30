@@ -25,6 +25,22 @@ public static class AzAuth
         return token;
     }
 
+    /// <summary>
+    /// Mints a token scoped to a specific subscription, which (unlike --tenant) targets
+    /// the correct signed-in user automatically and doesn't mutate the active az context.
+    /// Used by the keepalive sweep to slide each (user, tenant) RT clock forward.
+    /// </summary>
+    public static async Task<string> GetAccessTokenForSubscriptionAsync(
+        string resource, string subscriptionId, CancellationToken ct = default)
+    {
+        var stdout = await RunAzAsync(
+            $"account get-access-token --resource {resource} --subscription {subscriptionId} --query accessToken -o tsv", ct);
+        var token = stdout.Trim();
+        if (string.IsNullOrEmpty(token))
+            throw new InvalidOperationException($"Empty token for subscription {subscriptionId}.");
+        return token;
+    }
+
     /// <summary>Returns the signed-in user's Entra object id (from `az ad signed-in-user show`).</summary>
     public static async Task<string> GetCurrentUserObjectIdAsync(CancellationToken ct = default)
     {
