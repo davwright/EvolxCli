@@ -17,15 +17,38 @@ public static class AzAuth
 
     public static async Task<string> GetAccessTokenAsync(string resource, CancellationToken ct = default)
     {
-        // On Windows `az` is a .cmd shim — Process.Start can't invoke .cmd directly with
-        // UseShellExecute=false, so we route through cmd /c. On other platforms `az` is a real binary.
+        var stdout = await RunAzAsync(
+            $"account get-access-token --resource {resource} --query accessToken -o tsv", ct);
+        var token = stdout.Trim();
+        if (string.IsNullOrEmpty(token))
+            throw new InvalidOperationException("`az account get-access-token` returned an empty token.");
+        return token;
+    }
+
+    /// <summary>Returns the signed-in user's Entra object id (from `az ad signed-in-user show`).</summary>
+    public static async Task<string> GetCurrentUserObjectIdAsync(CancellationToken ct = default)
+    {
+        var output = await RunAzAsync("ad signed-in-user show --query id -o tsv", ct);
+        var id = output.Trim();
+        if (string.IsNullOrEmpty(id))
+            throw new InvalidOperationException("`az ad signed-in-user show` returned empty.");
+        return id;
+    }
+
+    /// <summary>
+    /// Runs `az &lt;args&gt;` and returns stdout. Wraps the Windows-vs-Linux shim quirk:
+    /// `az` is a .cmd file on Windows and Process.Start can't invoke that directly when
+    /// UseShellExecute=false, so we route through cmd /c there.
+    /// </summary>
+    private static async Task<string> RunAzAsync(string args, CancellationToken ct)
+    {
         ProcessStartInfo psi;
         if (OperatingSystem.IsWindows())
         {
             psi = new ProcessStartInfo
             {
                 FileName = "cmd.exe",
-                Arguments = $"/c az account get-access-token --resource {resource} --query accessToken -o tsv",
+                Arguments = $"/c az {args}",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -37,7 +60,7 @@ public static class AzAuth
             psi = new ProcessStartInfo
             {
                 FileName = "az",
-                ArgumentList = { "account", "get-access-token", "--resource", resource, "--query", "accessToken", "-o", "tsv" },
+                Arguments = args,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -54,13 +77,9 @@ public static class AzAuth
         if (proc.ExitCode != 0)
         {
             throw new InvalidOperationException(
-                $"`az account get-access-token` failed (exit {proc.ExitCode}). Run `az login` first.\n{stderr.Trim()}");
+                $"`az {args}` failed (exit {proc.ExitCode}). If this is an auth error, run `az login` first.\n{stderr.Trim()}");
         }
 
-        var token = stdout.Trim();
-        if (string.IsNullOrEmpty(token))
-            throw new InvalidOperationException("`az account get-access-token` returned an empty token.");
-
-        return token;
+        return stdout;
     }
 }
