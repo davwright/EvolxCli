@@ -134,6 +134,26 @@ If you're on a daily-use machine, you'll **forget you ever signed in** until the
 
 If your tenant has aggressive Conditional Access (e.g. "MFA every 7 days regardless"), nothing fixes that on the client. The cure is at the tenant level: longer sign-in frequency, or device-based trust signals (Entra-joined / Intune-compliant device extends the window).
 
+## Multi-tenant keepalive
+
+If you work across multiple Entra tenants — say, your evolit account plus a customer's — each tenant has **its own refresh-token inactivity clock**. Touch tenant A daily, leave tenant B alone for 90 days, and tenant B's RT dies. Next time you switch to it: MFA prompt.
+
+`ev` solves this transparently. **Once per week**, the next `ev` invocation does a sweep:
+
+1. `az account list` — find every (user, tenant) pair signed in
+2. For each: `az account get-access-token --subscription <id> --resource management.core.windows.net` — mints a throwaway token, slides that RT's inactivity clock forward
+3. Update marker `~/.evolx/last-keepalive`
+
+Cost: one file-stat (instant) on every call; once per week, ~150ms × N pairs. For 3 tenants, that's a one-time ~500ms hit on whichever Sunday your `ev` first runs that week. You'll see one stderr line: `[ev] keepalive: refreshed 3 tenant(s)`.
+
+This **does not** extend the **max-lifetime** ceiling (typically 90 days, 1 year for Entra-joined devices). MFA still fires when that hits — but the inactivity 90-day timer is the one that kills *infrequently-used* tenant access, and that's defeated as long as you run any `ev` command at least once a week.
+
+Implementation: [src/Evolx.Cli/Auth/Keepalive.cs](../src/Evolx.Cli/Auth/Keepalive.cs).
+
+### Why dedupe by (user, tenant) and not by tenant alone
+
+If you're signed into one tenant as `david.wright@oebb.at` and another tenant as `dwrigh@evolit.co.at`, calling `az account get-access-token --tenant <other-tenant>` fails with `AADSTS90072: User account does not exist in tenant`. `--subscription <id>` unambiguously identifies which signed-in user can mint tokens for which tenant, and never mutates the active az context.
+
 ## CI / build agents
 
 Don't use PATs. Use **federated identity** for Azure DevOps Pipelines:
