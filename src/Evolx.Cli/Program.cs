@@ -1,7 +1,13 @@
+using Evolx.Cli.Auth;
 using Evolx.Cli.Commands.Ado.PullRequest;
 using Evolx.Cli.Commands.Ado.Repo;
 using Evolx.Cli.Commands.Ado.WorkItem;
 using Spectre.Console.Cli;
+
+// Keep tenant inactivity clocks alive — runs at most once every 7 days, silent otherwise.
+// Most invocations skip out in <1ms after a marker-file stat. The weekly run is awaited
+// so the child az processes don't get killed when ev exits. See Auth/Keepalive.cs.
+await Keepalive.RunIfDueAsync();
 
 var app = new CommandApp();
 app.Configure(config =>
