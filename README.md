@@ -73,6 +73,11 @@ src/Evolx.Cli/
 
 Each verb is a single C# class deriving from `AsyncCommand<TSettings>`. Add a new one, register it in `Program.cs`, get help text + arg parsing for free.
 
+## Further reading
+
+- [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) — how `az` brokers tokens, multi-tenant keepalive, comparison with pac/spkl/Daxif
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — startup timing breakdown, when AOT pays off, why DLL splitting doesn't
+
 ## Roadmap
 
 - **`ev ado wi`** ✅ done (create, close, get, list)
