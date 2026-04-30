@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Evolx.Cli.Auth;
+using Evolx.Cli.Http;
 
 namespace Evolx.Cli.Dataverse;
 
@@ -120,6 +121,10 @@ public sealed class DvClient : IDisposable
 
     private static async Task ThrowIfErrorAsync(HttpResponseMessage resp, CancellationToken ct)
     {
+        // Surface any deprecation warnings the API set on this response, regardless of
+        // whether it succeeded. One yellow stderr line per (method, path) per process.
+        DeprecationDetector.Inspect(resp);
+
         if (resp.IsSuccessStatusCode) return;
         var body = await resp.Content.ReadAsStringAsync(ct);
         // Dataverse error envelope: {"error":{"code":"...", "message":"..."}}
