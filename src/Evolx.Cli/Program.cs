@@ -2,6 +2,7 @@ using Evolx.Cli.Auth;
 using Evolx.Cli.Commands.Ado.PullRequest;
 using Evolx.Cli.Commands.Ado.Repo;
 using Evolx.Cli.Commands.Ado.WorkItem;
+using Evolx.Cli.Commands.Dv;
 using Spectre.Console.Cli;
 
 // Keep tenant inactivity clocks alive — runs at most once every 7 days, silent otherwise.
@@ -23,7 +24,7 @@ app.Configure(config =>
         ado.AddBranch("wi", wi =>
         {
             wi.SetDescription("Work item commands.");
-            wi.AddCommand<CreateCommand>("create").WithDescription("Create a new work item.");
+            wi.AddCommand<Evolx.Cli.Commands.Ado.WorkItem.CreateCommand>("create").WithDescription("Create a new work item.");
             wi.AddCommand<CloseCommand>("close").WithDescription("Set state to Done (or another closed state).");
             wi.AddCommand<GetCommand>("get").WithDescription("Show one work item by id.");
             wi.AddCommand<ListCommand>("list").WithDescription("List work items, optionally filtered.");
@@ -48,6 +49,18 @@ app.Configure(config =>
             pr.AddCommand<CreatePrCommand>("create").WithDescription("Open a new PR.");
             pr.AddCommand<CommentPrCommand>("comment").WithDescription("Add a comment to a PR.");
         });
+    });
+
+    // ev dv ... (Dataverse)
+    config.AddBranch("dv", dv =>
+    {
+        dv.SetDescription("Dataverse verbs (query, create, delete, columns, env binding).");
+        dv.AddCommand<ConnectCommand>("connect").WithDescription("Bind this shell to a Dataverse environment.");
+        dv.AddCommand<WhoamiCommand>("whoami").WithDescription("Show the bound env + WhoAmI from Dataverse.");
+        dv.AddCommand<QueryCommand>("query").WithDescription("OData GET against a table with filter/select/top.");
+        dv.AddCommand<Evolx.Cli.Commands.Dv.CreateCommand>("create").WithDescription("POST a new row from JSON.");
+        dv.AddCommand<DeleteCommand>("delete").WithDescription("DELETE a row by id.");
+        dv.AddCommand<ColumnsCommand>("columns").WithDescription("List columns + types for a table.");
     });
 });
 
