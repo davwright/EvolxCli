@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Evolx.Cli.Auth;
+using Evolx.Cli.Http;
 
 namespace Evolx.Cli.Ado;
 
@@ -285,6 +286,10 @@ public sealed class AdoClient : IDisposable
 
     private static async Task ThrowIfErrorAsync(HttpResponseMessage resp, CancellationToken ct)
     {
+        // Surface any deprecation warnings the API set on this response, regardless of
+        // whether it succeeded. One yellow stderr line per (method, path) per process.
+        DeprecationDetector.Inspect(resp);
+
         if (resp.IsSuccessStatusCode) return;
         var body = await resp.Content.ReadAsStringAsync(ct);
         string detail;
