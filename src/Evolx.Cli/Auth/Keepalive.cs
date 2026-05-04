@@ -38,47 +38,45 @@ public static class Keepalive
     /// </summary>
     public static async Task RunIfDueAsync(CancellationToken ct = default)
     {
-        try
+        if (!IsDue()) return;
+
+        // If `az account list` itself fails, that's structural (az not installed,
+        // user not logged in at all). Let it throw — the user's actual command
+        // will fail too, and the message tells them what to fix.
+        var subs = await GetSignedInTenantsAsync(ct);
+        if (subs.Count == 0) return;
+
+        // Per-tenant: a dead refresh token in tenant A shouldn't block tenant B's
+        // refresh, and shouldn't block the user's real command. Report which
+        // tenants need re-auth so the user knows, but don't abort the sweep or
+        // throw — re-auth happens at `az login`, not as a side effect of `ev`.
+        var failures = new List<(string user, string tenantId, string error)>();
+        int refreshed = 0;
+        foreach (var sub in subs)
         {
-            if (!IsDue()) return;
-
-            var subs = await GetSignedInTenantsAsync(ct);
-            if (subs.Count == 0) return;
-
-            // Slide every (user, tenant) pair's inactivity clock forward by minting one
-            // throwaway token per subscription. Using --subscription targets the right user
-            // automatically and never mutates the active az context.
-            int ok = 0, failed = 0;
-            foreach (var sub in subs)
+            try
             {
-                try
-                {
-                    await AzAuth.GetAccessTokenForSubscriptionAsync(ManagementResource, sub.SubscriptionId, ct);
-                    ok++;
-                }
-                catch
-                {
-                    failed++;
-                    // Don't log here — one dead RT shouldn't spam every command.
-                    // The user will hit it at the actual usage site with a clear message.
-                }
+                await AzAuth.GetAccessTokenForSubscriptionAsync(ManagementResource, sub.SubscriptionId, ct);
+                refreshed++;
             }
-
-            // Write marker even on partial failure — we did try, no point retrying every command.
-            await File.WriteAllTextAsync(MarkerPath, DateTimeOffset.UtcNow.ToString("o"), ct);
-
-            // Print a single quiet status line to stderr so the user sees something happened.
-            // Stderr (not stdout) so it doesn't pollute pipes / scripts that consume ev output.
-            var msg = failed == 0
-                ? $"[ev] keepalive: refreshed {ok} tenant(s)"
-                : $"[ev] keepalive: refreshed {ok}, {failed} failed (run `ev auth status` to inspect)";
-            Console.Error.WriteLine(msg);
+            catch (Exception ex)
+            {
+                failures.Add((sub.User, sub.TenantId, FirstLine(ex.Message)));
+            }
         }
-        catch
+
+        // Mark complete so we don't retry every command. Failures are reported below.
+        await File.WriteAllTextAsync(MarkerPath, DateTimeOffset.UtcNow.ToString("o"), ct);
+
+        Console.Error.WriteLine($"[ev] keepalive: refreshed {refreshed} tenant(s)");
+        foreach (var (user, tid, err) in failures)
         {
-            // Never let keepalive break the user's command. Silent failure is correct here.
+            Console.Error.WriteLine($"[ev] keepalive: tenant {tid} ({user}) needs re-auth -- run: az login --tenant {tid}");
+            Console.Error.WriteLine($"        reason: {err}");
         }
     }
+
+    private static string FirstLine(string s) => s.Split('\n')[0].Trim();
 
     private static bool IsDue()
     {
