@@ -1,0 +1,12 @@
+﻿{
+  "permissions": {
+    "allow": [
+      "Edit(c:/git/tools/EvolxCli/**)",
+      "Write(c:/git/tools/EvolxCli/**)",
+      "Bash(dotnet*)",
+      "Bash(npm*)",
+      "Bash(npx*)",
+      "Bash(gh*)"
+    ]
+  }
+}
