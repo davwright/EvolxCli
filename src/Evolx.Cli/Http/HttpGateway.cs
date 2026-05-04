@@ -18,14 +18,38 @@ namespace Evolx.Cli.Http;
 public static class HttpGateway
 {
     /// <summary>One HttpClient per process — modern best practice (DNS rotation aside).</summary>
-    private static readonly HttpClient SharedClient = new()
+    private static HttpClient SharedClient { get; set; } = new()
     {
         Timeout = TimeSpan.FromSeconds(100),  // Same as default; overridable per-request via CT
     };
 
+    /// <summary>
+    /// Test-only seam: swap the HttpClient (and its handler) for a controllable one. Used by
+    /// the gateway test suite to verify retry, deprecation, error-shape, etc. without hitting
+    /// the network. Caller is responsible for restoring the original (use the IDisposable
+    /// returned by the helper). Production code never calls this.
+    /// </summary>
+    public static IDisposable OverrideHttpClientForTesting(HttpClient replacement)
+    {
+        var previous = SharedClient;
+        SharedClient = replacement;
+        return new ClientRestorer(previous);
+    }
+
+    private sealed class ClientRestorer : IDisposable
+    {
+        private readonly HttpClient _previous;
+        public ClientRestorer(HttpClient previous) { _previous = previous; }
+        public void Dispose() => SharedClient = _previous;
+    }
+
     public static readonly JsonSerializerOptions JsonOptions = new()
     {
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+        // Both ADO and Dataverse use camelCase. Models can still use [JsonPropertyName]
+        // for explicit overrides, but plain POCOs match without ceremony.
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
     // -------------------------------------------------------------- High-level API

@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Evolx.Cli/Evolx.Cli.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Evolx.Cli.Tests/Evolx.Cli.Tests.csproj" />
+  </Folder>
 </Solution>

@@ -73,6 +73,25 @@ src/Evolx.Cli/
 
 Each verb is a single C# class deriving from `AsyncCommand<TSettings>`. Add a new one, register it in `Program.cs`, get help text + arg parsing for free.
 
+## Tests
+
+```powershell
+# Unit + gateway tests (no network — fast, ~6s)
+dotnet test --filter "Category!=Live"
+
+# Live integration tests (hit real osis ADO/Dataverse — needs az login)
+dotnet test --filter "Category=Live"
+
+# Everything
+dotnet test
+```
+
+Test layout:
+
+- `tests/Evolx.Cli.Tests/Dataverse/` — pure-logic unit tests (env URL parsing, profile shape)
+- `tests/Evolx.Cli.Tests/Http/` — gateway tests with `FakeHttpHandler`: 200, 204, 429-with-retry, 429-exhausted, 4xx-errors, network failure, bearer/header round-tripping
+- `tests/Evolx.Cli.Tests/Live/` — `[Trait("Category","Live")]` integration tests against osis-dev. Read-only by default. Skip in CI by filtering them out.
+
 ## Further reading
 
 - [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) — how `az` brokers tokens, multi-tenant keepalive, comparison with pac/spkl/Daxif
