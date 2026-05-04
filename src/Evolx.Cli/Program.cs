@@ -3,7 +3,10 @@ using Evolx.Cli.Commands.Ado.PullRequest;
 using Evolx.Cli.Commands.Ado.Repo;
 using Evolx.Cli.Commands.Ado.WorkItem;
 using Evolx.Cli.Commands.Dv;
+using Evolx.Cli.Http;
+using Spectre.Console;
 using Spectre.Console.Cli;
+
 
 // Keep tenant inactivity clocks alive — runs at most once every 7 days, silent otherwise.
 // Most invocations skip out in <1ms after a marker-file stat. The weekly run is awaited
@@ -14,6 +17,11 @@ var app = new CommandApp();
 app.Configure(config =>
 {
     config.SetApplicationName("ev");
+
+    // Make Spectre propagate exceptions to our top-level handler instead of
+    // collapsing them to "Error: <message>". HttpFailure has rich detail we want
+    // the user to see (URL, body, headers, attempts).
+    config.PropagateExceptions();
 
     // Top-level branch: ev ado ...
     config.AddBranch("ado", ado =>
@@ -64,4 +72,21 @@ app.Configure(config =>
     });
 });
 
-return await app.RunAsync(args);
+// Run the command. Catch HttpFailure at the boundary to render its rich
+// diagnostic context (URL, status, response body, headers); other exceptions
+// get the default Spectre treatment. Either way, non-zero exit on failure —
+// no try/catch/continue inside the runtime.
+try
+{
+    return await app.RunAsync(args);
+}
+catch (HttpFailure http)
+{
+    Console.Error.Write(http.ToString());
+    return 1;
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine(ex);
+    return 1;
+}
