@@ -6,6 +6,7 @@ using Xunit;
 
 namespace Evolx.Cli.Tests.Http;
 
+[Collection(HttpClientCollection.Name)]
 public sealed class HttpGatewayTests
 {
     private record Probe(int Id, string Name);

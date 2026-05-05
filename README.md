@@ -32,6 +32,34 @@ ev ado wi list --type Issue
 
 Defaults to org `evolx` / project `Evolx.Intern.Microsoft` unless overridden by `--organization`/`--project` or env vars `EVOLX_ADO_ORG` / `EVOLX_ADO_PROJECT`.
 
+### `ev dv …` — Dataverse
+
+| Command | Description |
+|---|---|
+| `ev dv connect <env>` / `--clear` | Bind this shell to a Dataverse environment (or forget). |
+| `ev dv whoami` | Show the bound env + WhoAmI. |
+| `ev dv query <table> [--filter --select --orderby --top]` | OData GET with filters. |
+| `ev dv data <table> [--all] [--page-size N]` | Paged GET; `--all` follows `@odata.nextLink`. |
+| `ev dv create <table> --json '{…}'` | POST a new row. |
+| `ev dv update <table> <id> --json '{…}'` | PATCH an existing row. |
+| `ev dv delete <table> <id>` | DELETE a row by id. |
+| `ev dv columns <table> [--custom-only --required --type X]` | List columns + types. |
+| `ev dv tables [--include-system]` | List entity definitions (default: custom only). |
+| `ev dv table <logical>` | Full metadata + attributes for one table. |
+| `ev dv choices [--name <schema>]` | List global option sets, or expand one. |
+| `ev dv metadata --out file.xml [--filter PREFIX]` | Download `$metadata` CSDL XML. |
+| `ev dv roles` | List security roles. |
+| `ev dv role <name-or-id> [--privileges]` | Show one role; expand its privileges. |
+| `ev dv user-roles <user>` | Roles assigned to a user (GUID, email, or partial name). |
+
+Most read verbs accept `--json` to print the raw response body. `--json` flags on write verbs accept either inline JSON or `@path/to/file.json`.
+
+### `ev pp …` — Power Platform admin
+
+| Command | Description |
+|---|---|
+| `ev pp envs` | List Power Platform environments via the BAP admin API. |
+
 ### Examples
 
 ```powershell
@@ -99,10 +127,12 @@ Test layout:
 
 ## Roadmap
 
-- **`ev ado wi`** ✅ done (create, close, get, list)
-- **`ev ado pr`** — list/create/comment on pull requests
-- **`ev ado repo`** — list, clone, find
-- **`ev dv …`** — Dataverse query, seed, export (replaces DataverseCmdlets PowerShell module incrementally)
+- **`ev ado wi`** ✅ done (create, close, get, list, comment, link)
+- **`ev ado pr`** ✅ done (list, get, create, comment)
+- **`ev ado repo`** ✅ done (list, clone)
+- **`ev dv …` Cluster A — read & trivial CRUD** ✅ done (connect, whoami, query, data, create, update, delete, columns, tables, table, choices, metadata, roles, role, user-roles)
+- **`ev dv …` Cluster B — schema mutation** — table/column/choice/manymany/polymorphic
+- **`ev pp envs`** ✅ done — list Power Platform environments via BAP
 - **`ev canvas …`** — wraps canvas-app-tester invocations
 - **`ev solution …`** — pack/import/export Power Platform solutions
 

@@ -32,13 +32,54 @@ public sealed class DvClient : IDisposable
         _token = token;
     }
 
+    /// <summary>
+    /// Test-only factory: builds a client with a known env URL and token, skipping the
+    /// AzAuth round-trip. Production code goes through <see cref="CreateAsync"/>.
+    /// </summary>
+    internal static DvClient ForTesting(string envUrl, string token) => new(envUrl, token);
+
     public string EnvUrl => _envUrl;
+    public string BaseUrl => _baseUrl;
 
     public static async Task<DvClient> CreateAsync(string envUrl, CancellationToken ct = default)
     {
         var token = await AzAuth.GetAccessTokenAsync(envUrl, ct);
         return new DvClient(envUrl, token);
     }
+
+    // -------------------------------------------------------------- Core dispatch
+
+    /// <summary>
+    /// GET against any URL — relative (resolved against the data API base) or absolute
+    /// (e.g. an `@odata.nextLink`). Single dispatch point so headers/auth are uniform.
+    /// </summary>
+    public Task<JsonElement> GetJsonAsync(string urlOrPath, CancellationToken ct = default)
+        => HttpGateway.SendJsonForJsonElementAsync(
+            HttpMethod.Get, ResolveUrl(urlOrPath),
+            headers: DataverseHeaders,
+            bearerToken: _token,
+            ct: ct);
+
+    /// <summary>
+    /// GET as raw bytes — used for `$metadata` (XML, not JSON). Caller decides how to parse.
+    /// </summary>
+    public Task<byte[]> GetBytesAsync(string urlOrPath, string accept, CancellationToken ct = default)
+    {
+        var headers = new Dictionary<string, string>(DataverseHeaders) { ["Accept"] = accept };
+        return HttpGateway.SendBytesAsync(
+            HttpMethod.Get, ResolveUrl(urlOrPath),
+            headers: headers,
+            bearerToken: _token,
+            ct: ct);
+    }
+
+    private string ResolveUrl(string urlOrPath) =>
+        urlOrPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+        || urlOrPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            ? urlOrPath
+            : _baseUrl + urlOrPath;
+
+    // -------------------------------------------------------------- Read
 
     /// <summary>GET against an entity set with optional OData params. Returns the full root JsonElement.</summary>
     public Task<JsonElement> QueryAsync(
@@ -49,28 +90,100 @@ public sealed class DvClient : IDisposable
         int? top = null,
         CancellationToken ct = default)
     {
-        var qs = new List<string>();
-        if (!string.IsNullOrWhiteSpace(filter)) qs.Add($"$filter={Uri.EscapeDataString(filter)}");
-        if (!string.IsNullOrWhiteSpace(select)) qs.Add($"$select={Uri.EscapeDataString(select)}");
-        if (!string.IsNullOrWhiteSpace(orderBy)) qs.Add($"$orderby={Uri.EscapeDataString(orderBy)}");
-        if (top.HasValue) qs.Add($"$top={top.Value}");
-
-        var url = _baseUrl + entitySet + (qs.Count > 0 ? "?" + string.Join("&", qs) : "");
-        return HttpGateway.SendJsonForJsonElementAsync(
-            HttpMethod.Get, url,
-            headers: DataverseHeaders,
-            bearerToken: _token,
-            ct: ct);
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$filter", filter),
+            new("$select", select),
+            new("$orderby", orderBy),
+            new("$top", top?.ToString()),
+        });
+        return GetJsonAsync(entitySet + qs, ct);
     }
+
+    /// <summary>
+    /// Page through an entity set. Issues the first request with a maxpagesize hint, then
+    /// follows `@odata.nextLink` while it's present (if <paramref name="followAll"/>).
+    /// Calls <paramref name="onPage"/> once per page with the running row count.
+    /// </summary>
+    public async Task<PagedResult> QueryPagedAsync(
+        string entitySet,
+        string? filter = null,
+        string? select = null,
+        int pageSize = 5000,
+        bool followAll = false,
+        Action<int>? onPage = null,
+        CancellationToken ct = default)
+    {
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$filter", filter),
+            new("$select", select),
+        });
+
+        var headers = new Dictionary<string, string>(DataverseHeaders)
+        {
+            ["Prefer"] = $"odata.maxpagesize={pageSize}",
+        };
+
+        var url = ResolveUrl(entitySet + qs);
+        var rows = new List<JsonElement>();
+        string? nextLink;
+
+        while (true)
+        {
+            var page = await HttpGateway.SendJsonForJsonElementAsync(
+                HttpMethod.Get, url,
+                headers: headers,
+                bearerToken: _token,
+                ct: ct);
+
+            if (page.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var row in value.EnumerateArray()) rows.Add(row.Clone());
+            }
+            onPage?.Invoke(rows.Count);
+
+            nextLink = page.TryGetProperty("@odata.nextLink", out var nl) && nl.ValueKind == JsonValueKind.String
+                ? nl.GetString()
+                : null;
+
+            if (!followAll || string.IsNullOrEmpty(nextLink)) break;
+            url = nextLink;
+        }
+
+        return new PagedResult(rows, !string.IsNullOrEmpty(nextLink));
+    }
+
+    /// <summary>Result of a paged read. HasMore is true when more pages exist server-side.</summary>
+    public sealed record PagedResult(IReadOnlyList<JsonElement> Rows, bool HasMore);
+
+    // -------------------------------------------------------------- Write
 
     /// <summary>POST a record body (caller-formatted JSON string) with Prefer: return=representation.</summary>
     public Task<JsonElement> CreateAsync(string entitySet, string jsonBody, CancellationToken ct = default)
     {
         var headers = new Dictionary<string, string>(DataverseHeaders) { ["Prefer"] = "return=representation" };
+        // Parse-and-resend: validates the JSON up front and lets HttpGateway encode it.
+        // JsonContent.Create produces UTF-8 with charset header by default.
+        using var doc = JsonDocument.Parse(jsonBody);
         return HttpGateway.SendJsonForJsonElementAsync(
             HttpMethod.Post, _baseUrl + entitySet,
-            body: System.Text.Json.JsonDocument.Parse(jsonBody).RootElement,
+            body: doc.RootElement.Clone(),
             headers: headers,
+            bearerToken: _token,
+            ct: ct);
+    }
+
+    /// <summary>PATCH a record by id from caller-formatted JSON. Returns no body (Dataverse 204).</summary>
+    public Task UpdateAsync(string entitySet, string id, string jsonBody, CancellationToken ct = default)
+    {
+        // Parse first to fail fast on malformed JSON before the round-trip.
+        using var _ = JsonDocument.Parse(jsonBody);
+        return HttpGateway.SendStringNoContentAsync(
+            HttpMethod.Patch, _baseUrl + $"{entitySet}({id})",
+            body: jsonBody,
+            contentType: "application/json",
+            headers: DataverseHeaders,
             bearerToken: _token,
             ct: ct);
     }
@@ -83,24 +196,146 @@ public sealed class DvClient : IDisposable
             bearerToken: _token,
             ct: ct);
 
+    // -------------------------------------------------------------- Metadata
+
     /// <summary>List all attributes on a table via the EntityDefinitions endpoint.</summary>
     public Task<JsonElement> GetEntityAttributesAsync(string tableLogicalName, CancellationToken ct = default)
+        => GetJsonAsync($"EntityDefinitions(LogicalName='{OData.EscapeLiteral(tableLogicalName)}')/Attributes", ct);
+
+    /// <summary>List all entity definitions, optionally filtered to custom only.</summary>
+    public Task<JsonElement> ListEntityDefinitionsAsync(bool customOnly, CancellationToken ct = default)
     {
-        var url = _baseUrl + $"EntityDefinitions(LogicalName='{Uri.EscapeDataString(tableLogicalName)}')/Attributes";
-        return HttpGateway.SendJsonForJsonElementAsync(
-            HttpMethod.Get, url,
-            headers: DataverseHeaders,
-            bearerToken: _token,
-            ct: ct);
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select", "LogicalName,SchemaName,DisplayName,DisplayCollectionName,EntitySetName,IsCustomEntity"),
+            new("$filter", customOnly ? "IsCustomEntity eq true" : null),
+        });
+        return GetJsonAsync("EntityDefinitions" + qs, ct);
     }
+
+    /// <summary>Full EntityDefinition (with Attributes expanded) for one table.</summary>
+    public Task<JsonElement> GetEntityDefinitionAsync(string tableLogicalName, CancellationToken ct = default)
+    {
+        var path = $"EntityDefinitions(LogicalName='{OData.EscapeLiteral(tableLogicalName)}')";
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$expand", "Attributes($select=LogicalName,AttributeType,RequiredLevel,IsValidForCreate,IsValidForUpdate,Description)"),
+        });
+        return GetJsonAsync(path + qs, ct);
+    }
+
+    /// <summary>List global option sets (choices), optionally one by name.</summary>
+    public Task<JsonElement> GetGlobalOptionSetsAsync(string? name, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+            {
+                new("$select", "Name,DisplayName,Description,OptionSetType"),
+            });
+            return GetJsonAsync("GlobalOptionSetDefinitions" + qs, ct);
+        }
+        return GetJsonAsync($"GlobalOptionSetDefinitions(Name='{OData.EscapeLiteral(name)}')", ct);
+    }
+
+    /// <summary>Download the CSDL `$metadata` document as raw UTF-8 XML bytes.</summary>
+    public Task<byte[]> GetCsdlMetadataAsync(CancellationToken ct = default)
+        => GetBytesAsync("$metadata", accept: "application/xml", ct);
+
+    // -------------------------------------------------------------- Security
+
+    /// <summary>List security roles (id + name + business unit).</summary>
+    public Task<JsonElement> ListRolesAsync(CancellationToken ct = default)
+    {
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select", "roleid,name"),
+            new("$expand", "businessunitid($select=name)"),
+            new("$orderby", "name asc"),
+        });
+        return GetJsonAsync("roles" + qs, ct);
+    }
+
+    /// <summary>Roles assigned to a user, by user id.</summary>
+    public Task<JsonElement> GetUserRolesAsync(string userId, CancellationToken ct = default)
+    {
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select", "roleid,name"),
+            new("$expand", "businessunitid($select=name)"),
+        });
+        return GetJsonAsync($"systemusers({userId})/systemuserroles_association" + qs, ct);
+    }
+
+    /// <summary>roleprivileges_association rows for a role (the privileges + access right).</summary>
+    public Task<JsonElement> GetRolePrivilegesAsync(string roleId, CancellationToken ct = default)
+    {
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select", "privilegeid,name,accessright"),
+        });
+        return GetJsonAsync($"roles({roleId})/roleprivileges_association" + qs, ct);
+    }
+
+    /// <summary>
+    /// Depth bitmask for each privilege held by a role (for User/BU/Parent-BU/Org).
+    /// `roleprivilegescollection` is a virtual entity exposing `roleid` and `privilegedepthmask`
+    /// directly (no underscore-prefixed lookup field, unlike most relations).
+    /// </summary>
+    public Task<JsonElement> GetRolePrivilegeDepthsAsync(string roleId, CancellationToken ct = default)
+    {
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select", "privilegeid,privilegedepthmask"),
+            new("$filter", $"roleid eq {roleId}"),
+        });
+        return GetJsonAsync("roleprivilegescollection" + qs, ct);
+    }
+
+    /// <summary>Resolve a user by exact id, email, or partial display name. Email match is case-insensitive.</summary>
+    public Task<JsonElement> FindUsersAsync(string nameOrEmailOrId, CancellationToken ct = default)
+    {
+        if (Guid.TryParse(nameOrEmailOrId, out _))
+            return GetJsonAsync($"systemusers({nameOrEmailOrId})", ct);
+
+        var hasAt = nameOrEmailOrId.Contains('@');
+        var escaped = OData.EscapeLiteral(nameOrEmailOrId);
+
+        // `eq` is case-sensitive on internalemailaddress (e.g. "David.Wright@..." won't match
+        // "david.wright@..."), and `tolower()` is not implemented on Dataverse's OData. Fall back
+        // to `contains()` which Dataverse implements as a case-insensitive search — slightly
+        // looser semantics, but the trade-off is acceptable for a lookup by-email use case.
+        var filter = hasAt
+            ? $"contains(internalemailaddress,'{escaped}')"
+            : $"contains(fullname,'{escaped}')";
+
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select", "systemuserid,fullname,internalemailaddress,isdisabled"),
+            new("$filter", filter),
+        });
+        return GetJsonAsync("systemusers" + qs, ct);
+    }
+
+    /// <summary>Resolve a role by exact id or partial name. Returns matches.</summary>
+    public Task<JsonElement> FindRolesAsync(string nameOrId, CancellationToken ct = default)
+    {
+        if (Guid.TryParse(nameOrId, out _))
+            return GetJsonAsync($"roles({nameOrId})", ct);
+
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select", "roleid,name"),
+            new("$filter", $"contains(name,'{OData.EscapeLiteral(nameOrId)}')"),
+        });
+        return GetJsonAsync("roles" + qs, ct);
+    }
+
+    // -------------------------------------------------------------- WhoAmI
 
     /// <summary>WhoAmI returns UserId/BU/Org.</summary>
     public Task<JsonElement> WhoAmIAsync(CancellationToken ct = default)
-        => HttpGateway.SendJsonForJsonElementAsync(
-            HttpMethod.Get, _baseUrl + "WhoAmI",
-            headers: DataverseHeaders,
-            bearerToken: _token,
-            ct: ct);
+        => GetJsonAsync("WhoAmI", ct);
 
     public void Dispose() { /* no per-instance resources */ }
 }

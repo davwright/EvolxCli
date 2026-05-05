@@ -150,6 +150,21 @@ public static class HttpGateway
         await resp.Content.ReadAsByteArrayAsync(ct);
     }
 
+    /// <summary>Send with a string body, expect no response body. For PATCH/PUT that return 204.</summary>
+    public static async Task SendStringNoContentAsync(
+        HttpMethod method,
+        string url,
+        string body,
+        string contentType,
+        IDictionary<string, string>? headers = null,
+        string? bearerToken = null,
+        CancellationToken ct = default)
+    {
+        var content = new StringContent(body, Encoding.UTF8, contentType);
+        var resp = await SendCoreAsync(method, url, content, headers, bearerToken, ct);
+        await resp.Content.ReadAsByteArrayAsync(ct);
+    }
+
     // -------------------------------------------------------------- Body parsing
 
     /// <summary>

@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <Import Project="version.props" />
+
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
@@ -12,7 +14,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>ev</ToolCommandName>
     <PackageId>Evolx.Cli</PackageId>
-    <Version>0.1.0</Version>
+    <Version>$(VersionMajor).$(VersionMinor).$(VersionPatch)</Version>
     <Description>Evolx Platform CLI. Subcommand tree wrapping Azure DevOps, Dataverse, and Canvas App tooling.</Description>
     <Authors>Evolx</Authors>
     <PackageOutputPath>./nupkg</PackageOutputPath>
@@ -21,5 +23,30 @@
   <ItemGroup>
     <PackageReference Include="Spectre.Console.Cli" Version="0.55.0" />
   </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Evolx.Cli.Tests" />
+  </ItemGroup>
+
+  <!--
+    Auto-bump the patch number on every build. Runs BeforeTargets="BeforeBuild" so the
+    bumped value lands in the assembly's AssemblyInformationalVersion / AssemblyFileVersion
+    before compilation. Uses XmlPoke against version.props (no string-mangling source files)
+    so the file stays well-formed XML and diffs cleanly in git.
+  -->
+  <Target Name="BumpPatchVersion" BeforeTargets="BeforeBuild" Condition="'$(SkipVersionBump)' != 'true'">
+    <PropertyGroup>
+      <_NextPatch>$([MSBuild]::Add($(VersionPatch), 1))</_NextPatch>
+    </PropertyGroup>
+    <XmlPoke
+      XmlInputPath="$(MSBuildThisFileDirectory)version.props"
+      Query="/Project/PropertyGroup/VersionPatch"
+      Value="$(_NextPatch)" />
+    <PropertyGroup>
+      <VersionPatch>$(_NextPatch)</VersionPatch>
+      <Version>$(VersionMajor).$(VersionMinor).$(VersionPatch)</Version>
+    </PropertyGroup>
+    <Message Importance="high" Text="Evolx.Cli version bumped to $(Version)" />
+  </Target>
 
 </Project>

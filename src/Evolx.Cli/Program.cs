@@ -1,3 +1,4 @@
+using Evolx.Cli;
 using Evolx.Cli.Auth;
 using Evolx.Cli.Commands.Ado.PullRequest;
 using Evolx.Cli.Commands.Ado.Repo;
@@ -7,6 +8,9 @@ using Evolx.Cli.Http;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
+
+// One-line banner with version + description, on stderr. Skipped for `--help`-only invocations.
+Banner.Print();
 
 // Keep tenant inactivity clocks alive — runs at most once every 7 days, silent otherwise.
 // Most invocations skip out in <1ms after a marker-file stat. The weekly run is awaited
@@ -66,9 +70,25 @@ app.Configure(config =>
         dv.AddCommand<ConnectCommand>("connect").WithDescription("Bind this shell to a Dataverse environment.");
         dv.AddCommand<WhoamiCommand>("whoami").WithDescription("Show the bound env + WhoAmI from Dataverse.");
         dv.AddCommand<QueryCommand>("query").WithDescription("OData GET against a table with filter/select/top.");
+        dv.AddCommand<DataCommand>("data").WithDescription("Paged GET. --all follows @odata.nextLink.");
         dv.AddCommand<Evolx.Cli.Commands.Dv.CreateCommand>("create").WithDescription("POST a new row from JSON.");
+        dv.AddCommand<UpdateCommand>("update").WithDescription("PATCH an existing row from JSON.");
         dv.AddCommand<DeleteCommand>("delete").WithDescription("DELETE a row by id.");
         dv.AddCommand<ColumnsCommand>("columns").WithDescription("List columns + types for a table.");
+        dv.AddCommand<TablesCommand>("tables").WithDescription("List entity definitions.");
+        dv.AddCommand<TableCommand>("table").WithDescription("Full metadata for one table.");
+        dv.AddCommand<ChoicesCommand>("choices").WithDescription("List global option sets; --name expands one.");
+        dv.AddCommand<MetadataCommand>("metadata").WithDescription("Download $metadata CSDL XML.");
+        dv.AddCommand<RolesCommand>("roles").WithDescription("List security roles.");
+        dv.AddCommand<RoleCommand>("role").WithDescription("Show one role; --privileges expands it.");
+        dv.AddCommand<UserRolesCommand>("user-roles").WithDescription("Roles assigned to a user.");
+    });
+
+    // ev pp ... (Power Platform admin)
+    config.AddBranch("pp", pp =>
+    {
+        pp.SetDescription("Power Platform admin verbs.");
+        pp.AddCommand<Evolx.Cli.Commands.Pp.EnvsCommand>("envs").WithDescription("List Power Platform environments (BAP).");
     });
 });
 

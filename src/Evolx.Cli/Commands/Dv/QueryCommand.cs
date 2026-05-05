@@ -66,49 +66,15 @@ public sealed class QueryCommand : AsyncCommand<QueryCommand.Settings>
 
         if (s.Json)
         {
-            AnsiConsole.WriteLine(JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true }));
+            JsonTableRenderer.RenderJson(value);
             return 0;
         }
 
-        // Table view: pick columns from --select if given, else from the first row's keys
-        // (skipping odata.* metadata properties).
         var rows = value.EnumerateArray().ToList();
-        if (rows.Count == 0)
-        {
-            AnsiConsole.MarkupLine("[dim]0 rows.[/]");
-            return 0;
-        }
-
-        var columns = s.Select?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
-                      ?? rows[0].EnumerateObject()
-                            .Where(p => !p.Name.StartsWith("@odata", StringComparison.OrdinalIgnoreCase))
-                            .Select(p => p.Name)
-                            .Take(6) // sane default for "no --select"
-                            .ToList();
-
-        var table = new Table().Border(TableBorder.Minimal);
-        foreach (var c in columns) table.AddColumn(c);
-
-        foreach (var row in rows)
-        {
-            var cells = columns.Select(c =>
-            {
-                if (!row.TryGetProperty(c, out var prop)) return "[dim]-[/]";
-                return prop.ValueKind switch
-                {
-                    JsonValueKind.Null => "[dim]null[/]",
-                    JsonValueKind.String => Markup.Escape(prop.GetString() ?? ""),
-                    JsonValueKind.Number => prop.ToString(),
-                    JsonValueKind.True => "true",
-                    JsonValueKind.False => "false",
-                    _ => Markup.Escape(prop.GetRawText()),
-                };
-            }).ToArray();
-            table.AddRow(cells);
-        }
-
-        AnsiConsole.Write(table);
-        AnsiConsole.MarkupLine($"[dim]{rows.Count} row(s)[/]");
+        var explicitColumns = s.Select?
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+        JsonTableRenderer.Render(rows, explicitColumns);
         return 0;
     }
 }
