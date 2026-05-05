@@ -82,6 +82,41 @@ app.Configure(config =>
         dv.AddCommand<RolesCommand>("roles").WithDescription("List security roles.");
         dv.AddCommand<RoleCommand>("role").WithDescription("Show one role; --privileges expands it.");
         dv.AddCommand<UserRolesCommand>("user-roles").WithDescription("Roles assigned to a user.");
+
+        // ev dv schema ... — schema mutation
+        dv.AddBranch("schema", schema =>
+        {
+            schema.SetDescription("Schema mutation: tables, columns, choices, relationships, publish.");
+
+            schema.AddBranch("table", table =>
+            {
+                table.SetDescription("Table (entity) verbs.");
+                table.AddCommand<Evolx.Cli.Commands.Dv.Schema.Table.NewTableCommand>("new").WithDescription("Create a new table.");
+                table.AddCommand<Evolx.Cli.Commands.Dv.Schema.Table.UpdateTableCommand>("update").WithDescription("Update an existing table.");
+                table.AddCommand<Evolx.Cli.Commands.Dv.Schema.Table.RemoveTableCommand>("remove").WithDescription("Delete a table (--yes required).");
+            });
+
+            schema.AddBranch("column", column =>
+            {
+                column.SetDescription("Column (attribute) verbs.");
+                column.AddCommand<Evolx.Cli.Commands.Dv.Schema.Column.NewColumnCommand>("new").WithDescription("Create a column. --type dispatches to the right metadata shape.");
+                column.AddCommand<Evolx.Cli.Commands.Dv.Schema.Column.UpdateColumnCommand>("update").WithDescription("Update labels / required level / max-length on a column.");
+                column.AddCommand<Evolx.Cli.Commands.Dv.Schema.Column.RemoveColumnCommand>("remove").WithDescription("Delete a column (--yes required).");
+                column.AddCommand<Evolx.Cli.Commands.Dv.Schema.Column.CopyColumnCommand>("copy").WithDescription("Copy a column's values from one env to another.");
+            });
+
+            schema.AddBranch("choice", choice =>
+            {
+                choice.SetDescription("Global option set (choice) verbs.");
+                choice.AddCommand<Evolx.Cli.Commands.Dv.Schema.Choice.NewChoiceCommand>("new").WithDescription("Create a global option set.");
+                choice.AddCommand<Evolx.Cli.Commands.Dv.Schema.Choice.UpdateChoiceCommand>("update").WithDescription("Update labels or add new options.");
+                choice.AddCommand<Evolx.Cli.Commands.Dv.Schema.Choice.RemoveChoiceCommand>("remove").WithDescription("Delete a global option set (--yes required).");
+            });
+
+            schema.AddCommand<Evolx.Cli.Commands.Dv.Schema.ManyToManyCommand>("many-to-many").WithDescription("Create an N:N relationship.");
+            schema.AddCommand<Evolx.Cli.Commands.Dv.Schema.PolymorphicLookupCommand>("polymorphic-lookup").WithDescription("Create a polymorphic lookup column.");
+            schema.AddCommand<Evolx.Cli.Commands.Dv.Schema.PublishCommand>("publish").WithDescription("Publish entities and/or option sets.");
+        });
     });
 
     // ev pp ... (Power Platform admin)

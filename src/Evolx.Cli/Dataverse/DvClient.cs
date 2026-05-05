@@ -196,6 +196,128 @@ public sealed class DvClient : IDisposable
             bearerToken: _token,
             ct: ct);
 
+    // -------------------------------------------------------------- Schema mutation
+
+    /// <summary>
+    /// POST a metadata body (typed object, serialized via <see cref="HttpGateway.JsonOptions"/>).
+    /// Used for creating tables, columns, choices, relationships, and invoking custom actions.
+    /// Optional <paramref name="solutionUniqueName"/> sets the <c>MSCRM.SolutionUniqueName</c>
+    /// header so the new component lands in the named solution.
+    /// </summary>
+    public Task<JsonElement> PostMetadataAsync(string path, object body, string? solutionUniqueName = null, CancellationToken ct = default)
+    {
+        var headers = BuildMetadataHeaders(solutionUniqueName, mergeLabels: false);
+        return HttpGateway.SendJsonForJsonElementAsync(
+            HttpMethod.Post, _baseUrl + path,
+            body: body,
+            headers: headers,
+            bearerToken: _token,
+            jsonOptions: HttpGateway.MetadataJsonOptions,
+            ct: ct);
+    }
+
+    /// <summary>
+    /// PUT a metadata body (typed object). Used for table/column/choice updates. Sets
+    /// <c>MSCRM.MergeLabels: true</c> so localized labels are merged rather than replaced
+    /// (Dataverse default is replace, which would wipe non-EN labels on partial updates).
+    /// </summary>
+    public Task PutMetadataAsync(string path, object body, string? solutionUniqueName = null, CancellationToken ct = default)
+    {
+        var headers = BuildMetadataHeaders(solutionUniqueName, mergeLabels: true);
+        // PUT to /EntityDefinitions returns 204 — use the no-content path. Serialize the
+        // typed body with the same JsonContent helper used elsewhere so we never hand-roll JSON.
+        return SendJsonNoContentAsync(HttpMethod.Put, _baseUrl + path, body, headers, ct);
+    }
+
+    /// <summary>DELETE a metadata path (e.g. <c>EntityDefinitions(metadataId)</c>).</summary>
+    public Task DeleteMetadataAsync(string path, CancellationToken ct = default)
+        => HttpGateway.SendNoContentAsync(
+            HttpMethod.Delete, _baseUrl + path,
+            headers: DataverseHeaders,
+            bearerToken: _token,
+            ct: ct);
+
+    /// <summary>
+    /// Invoke an unbound action (e.g. <c>PublishXml</c>, <c>CreatePolymorphicLookupAttribute</c>,
+    /// <c>UpdateOptionValue</c>). Returns the parsed response body — many actions return useful
+    /// structured data like new attribute IDs.
+    /// </summary>
+    public Task<JsonElement> InvokeActionAsync(string actionName, object body, string? solutionUniqueName = null, CancellationToken ct = default)
+    {
+        var headers = BuildMetadataHeaders(solutionUniqueName, mergeLabels: false);
+        return HttpGateway.SendJsonForJsonElementAsync(
+            HttpMethod.Post, _baseUrl + actionName,
+            body: body,
+            headers: headers,
+            bearerToken: _token,
+            jsonOptions: HttpGateway.MetadataJsonOptions,
+            ct: ct);
+    }
+
+    // -------------------------------------------------------------- Re-read helpers (for SilentSkipGuard)
+
+    /// <summary>Returns the EntityDefinition for a logical name, or null on 404.</summary>
+    public Task<JsonElement?> TryGetEntityDefinitionAsync(string logicalName, CancellationToken ct = default)
+        => TryGetJsonAsync($"EntityDefinitions(LogicalName='{OData.EscapeLiteral(logicalName)}')", ct);
+
+    /// <summary>Returns the AttributeDefinition for a column, or null on 404.</summary>
+    public Task<JsonElement?> TryGetAttributeAsync(string table, string column, CancellationToken ct = default)
+        => TryGetJsonAsync(
+            $"EntityDefinitions(LogicalName='{OData.EscapeLiteral(table)}')/Attributes(LogicalName='{OData.EscapeLiteral(column)}')",
+            ct);
+
+    /// <summary>Returns the global option set definition, or null on 404.</summary>
+    public Task<JsonElement?> TryGetGlobalOptionSetAsync(string name, CancellationToken ct = default)
+        => TryGetJsonAsync($"GlobalOptionSetDefinitions(Name='{OData.EscapeLiteral(name)}')", ct);
+
+    /// <summary>
+    /// Returns the relationship metadata for either a 1:N or N:N relationship by SchemaName,
+    /// or null on 404. Dataverse exposes this via the polymorphic <c>RelationshipDefinitions</c>
+    /// set; the response @odata.type tells you which kind it is.
+    /// </summary>
+    public Task<JsonElement?> TryGetRelationshipAsync(string schemaName, CancellationToken ct = default)
+        => TryGetJsonAsync($"RelationshipDefinitions(SchemaName='{OData.EscapeLiteral(schemaName)}')", ct);
+
+    private async Task<JsonElement?> TryGetJsonAsync(string path, CancellationToken ct)
+    {
+        try
+        {
+            return await GetJsonAsync(path, ct);
+        }
+        catch (HttpFailure ex) when (ex.Status == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    // -------------------------------------------------------------- Internal helpers
+
+    /// <summary>Build the header set for metadata mutations: standard Dataverse + optional solution + optional MergeLabels.</summary>
+    private static Dictionary<string, string> BuildMetadataHeaders(string? solutionUniqueName, bool mergeLabels)
+    {
+        var headers = new Dictionary<string, string>(DataverseHeaders);
+        if (!string.IsNullOrEmpty(solutionUniqueName))
+            headers["MSCRM.SolutionUniqueName"] = solutionUniqueName;
+        if (mergeLabels)
+            headers["MSCRM.MergeLabels"] = "true";
+        return headers;
+    }
+
+    /// <summary>
+    /// Send a typed body and discard the response. Uses MetadataJsonOptions so PascalCase
+    /// names go through verbatim (matches Dataverse's metadata-API conventions).
+    /// </summary>
+    private async Task SendJsonNoContentAsync(HttpMethod method, string url, object body, IDictionary<string, string> headers, CancellationToken ct)
+    {
+        await HttpGateway.SendJsonForJsonElementAsync(
+            method, url,
+            body: body,
+            headers: headers,
+            bearerToken: _token,
+            jsonOptions: HttpGateway.MetadataJsonOptions,
+            ct: ct);
+    }
+
     // -------------------------------------------------------------- Metadata
 
     /// <summary>List all attributes on a table via the EntityDefinitions endpoint.</summary>

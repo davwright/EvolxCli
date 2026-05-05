@@ -46,10 +46,23 @@ public static class HttpGateway
     public static readonly JsonSerializerOptions JsonOptions = new()
     {
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
-        // Both ADO and Dataverse use camelCase. Models can still use [JsonPropertyName]
+        // Both ADO and Dataverse data APIs use camelCase. Models can still use [JsonPropertyName]
         // for explicit overrides, but plain POCOs match without ceremony.
         PropertyNameCaseInsensitive = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
+    /// <summary>
+    /// Same as <see cref="JsonOptions"/> but without the camelCase naming policy. Used for
+    /// Dataverse metadata bodies (EntityDefinitions, Attributes, OptionSetDefinitions,
+    /// RelationshipDefinitions, action bodies) where the server expects PascalCase property
+    /// names like <c>SchemaName</c>, <c>OwnershipType</c>, <c>ParameterXml</c>.
+    /// </summary>
+    public static readonly JsonSerializerOptions MetadataJsonOptions = new()
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+        PropertyNameCaseInsensitive = true,
+        // No PropertyNamingPolicy — names go through verbatim.
     };
 
     // -------------------------------------------------------------- High-level API
@@ -85,11 +98,12 @@ public static class HttpGateway
         IDictionary<string, string>? headers = null,
         string? bearerToken = null,
         string? contentType = null,
+        JsonSerializerOptions? jsonOptions = null,
         CancellationToken ct = default)
     {
         var content = body == null
             ? null
-            : JsonContent.Create(body, options: JsonOptions);
+            : JsonContent.Create(body, options: jsonOptions ?? JsonOptions);
 
         if (content != null && !string.IsNullOrEmpty(contentType))
         {

@@ -54,6 +54,26 @@ Defaults to org `evolx` / project `Evolx.Intern.Microsoft` unless overridden by 
 
 Most read verbs accept `--json` to print the raw response body. `--json` flags on write verbs accept either inline JSON or `@path/to/file.json`.
 
+### `ev dv schema …` — schema mutation
+
+| Command | Description |
+|---|---|
+| `ev dv schema table new <schema-name> [flags] [--solution X --publish]` | Create a table. Flags: `--display-name`, `--display-name-de`, `--plural-name`, `--plural-name-de`, `--description`, `--description-de`, `--ownership`, `--activity`, `--enable-auditing`, `--enable-duplicate-detection`, `--enable-offline`, `--enable-notes`, `--enable-activities`. |
+| `ev dv schema table update <logical> [flags]` | Update labels / auditing / duplicate-detection on an existing table. |
+| `ev dv schema table remove <logical> --yes` | Delete a table (gated on `--yes`). |
+| `ev dv schema column new <table> <schema-name> --type X [flags]` | Create a column. `--type` ∈ text, memo, integer, decimal, money, boolean, date, datetime, choice, multi-choice, lookup, customer, image. Type-specific flags: `--max-length`, `--precision`, `--min/--max`, `--true-label/--false-label`, `--choices "a;b;c"`, `--global-option-set`, `--target` (lookup), `--max-size-kb` / `--can-store-full-image`. |
+| `ev dv schema column update <table> <column> [flags]` | Update labels / required level / max length on a column. |
+| `ev dv schema column remove <table> <column> --yes` | Delete a column. |
+| `ev dv schema column copy --from <env>:<table>.<col> --to <table>.<col> [--filter --overwrite]` | Copy a column's values across environments. |
+| `ev dv schema choice new <name> --options "a;b;c" [flags]` | Create a global option set. |
+| `ev dv schema choice update <name> [flags]` | Update labels or add new options. |
+| `ev dv schema choice remove <name> --yes` | Delete a global option set. |
+| `ev dv schema many-to-many <name> --table-a X --table-b Y [--intersect-name X]` | Create an N:N relationship. |
+| `ev dv schema polymorphic-lookup <table> <name> --targets a,b,c [flags]` | Create a polymorphic lookup column. |
+| `ev dv schema publish [--all \| --table X --option-set Y]` | Publish customizations. |
+
+Every mutation accepts `--solution <NAME>` to scope the change to a Dataverse solution (sets `MSCRM.SolutionUniqueName`) and `--publish` to publish the affected entity / option set after the change lands. After every mutation we re-read to confirm the change actually applied — surfaces silent-skip-on-duplicate-name behavior as `SchemaMutationDidNotApplyException`.
+
 ### `ev pp …` — Power Platform admin
 
 | Command | Description |
@@ -131,7 +151,7 @@ Test layout:
 - **`ev ado pr`** ✅ done (list, get, create, comment)
 - **`ev ado repo`** ✅ done (list, clone)
 - **`ev dv …` Cluster A — read & trivial CRUD** ✅ done (connect, whoami, query, data, create, update, delete, columns, tables, table, choices, metadata, roles, role, user-roles)
-- **`ev dv …` Cluster B — schema mutation** — table/column/choice/manymany/polymorphic
+- **`ev dv schema …` Cluster B — schema mutation** ✅ done (table new/update/remove, column new/update/remove/copy, choice new/update/remove, many-to-many, polymorphic-lookup, publish)
 - **`ev pp envs`** ✅ done — list Power Platform environments via BAP
 - **`ev canvas …`** — wraps canvas-app-tester invocations
 - **`ev solution …`** — pack/import/export Power Platform solutions
