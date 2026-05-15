@@ -125,6 +125,14 @@ app.Configure(config =>
         pp.SetDescription("Power Platform admin verbs.");
         pp.AddCommand<Evolx.Cli.Commands.Pp.EnvsCommand>("envs").WithDescription("List Power Platform environments (BAP).");
     });
+
+    // ev canvas ... (canvas-app local file ops; the one place we delegate to `pac`)
+    config.AddBranch("canvas", canvas =>
+    {
+        canvas.SetDescription("Canvas App verbs. Pack/unpack delegate to `pac`; no `az` needed.");
+        canvas.AddCommand<Evolx.Cli.Commands.Canvas.PackCommand>("pack").WithDescription("Pack a source directory into a .msapp via pac.");
+        canvas.AddCommand<Evolx.Cli.Commands.Canvas.UnpackCommand>("unpack").WithDescription("Unpack a .msapp into source files via pac.");
+    });
 });
 
 // Run the command. Catch HttpFailure at the boundary to render its rich

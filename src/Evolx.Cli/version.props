@@ -4,6 +4,6 @@
   <PropertyGroup>
     <VersionMajor>0</VersionMajor>
     <VersionMinor>1</VersionMinor>
-    <VersionPatch>29</VersionPatch>
+    <VersionPatch>37</VersionPatch>
   </PropertyGroup>
 </Project>
