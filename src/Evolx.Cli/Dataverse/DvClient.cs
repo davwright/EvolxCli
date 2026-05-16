@@ -459,5 +459,61 @@ public sealed class DvClient : IDisposable
     public Task<JsonElement> WhoAmIAsync(CancellationToken ct = default)
         => GetJsonAsync("WhoAmI", ct);
 
+    // -------------------------------------------------------------- Solution lifecycle
+
+    /// <summary>List unmanaged or all solutions (filtered to visible ones).</summary>
+    public Task<JsonElement> ListSolutionsAsync(bool unmanagedOnly, CancellationToken ct = default)
+    {
+        var filterParts = new List<string> { "isvisible eq true" };
+        if (unmanagedOnly) filterParts.Add("ismanaged eq false");
+
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select", "solutionid,uniquename,friendlyname,version,ismanaged,installedon"),
+            new("$filter", string.Join(" and ", filterParts)),
+            new("$orderby", "uniquename asc"),
+        });
+        return GetJsonAsync("solutions" + qs, ct);
+    }
+
+    /// <summary>Look up a solution by unique name. Returns null when no match.</summary>
+    public async Task<JsonElement?> TryGetSolutionAsync(string uniqueName, CancellationToken ct = default)
+    {
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select", "solutionid,uniquename,friendlyname,version,ismanaged"),
+            new("$filter", $"uniquename eq '{OData.EscapeLiteral(uniqueName)}'"),
+        });
+        var root = await GetJsonAsync("solutions" + qs, ct);
+        if (root.TryGetProperty("value", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var row in arr.EnumerateArray()) return row.Clone();
+        }
+        return null;
+    }
+
+    /// <summary>Look up a publisher by unique name. Returns null when no match.</summary>
+    public async Task<JsonElement?> TryGetPublisherAsync(string uniqueName, CancellationToken ct = default)
+    {
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select", "publisherid,uniquename,friendlyname,customizationprefix"),
+            new("$filter", $"uniquename eq '{OData.EscapeLiteral(uniqueName)}'"),
+        });
+        var root = await GetJsonAsync("publishers" + qs, ct);
+        if (root.TryGetProperty("value", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var row in arr.EnumerateArray()) return row.Clone();
+        }
+        return null;
+    }
+
+    /// <summary>Get one import job by id. Returns null on 404.</summary>
+    public async Task<JsonElement?> TryGetImportJobAsync(Guid jobId, CancellationToken ct = default)
+    {
+        try { return await GetJsonAsync($"importjobs({jobId})", ct); }
+        catch (HttpFailure ex) when (ex.Status == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
     public void Dispose() { /* no per-instance resources */ }
 }

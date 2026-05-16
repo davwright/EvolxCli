@@ -117,6 +117,19 @@ app.Configure(config =>
             schema.AddCommand<Evolx.Cli.Commands.Dv.Schema.PolymorphicLookupCommand>("polymorphic-lookup").WithDescription("Create a polymorphic lookup column.");
             schema.AddCommand<Evolx.Cli.Commands.Dv.Schema.PublishCommand>("publish").WithDescription("Publish entities and/or option sets.");
         });
+
+        // ev dv solution ... — solution lifecycle via direct REST (not pac).
+        dv.AddBranch("solution", solution =>
+        {
+            solution.SetDescription("Solution lifecycle: new/list/export/import/import-status/publish/remove-component.");
+            solution.AddCommand<Evolx.Cli.Commands.Dv.Solution.NewSolutionCommand>("new").WithDescription("Create a new unmanaged solution.");
+            solution.AddCommand<Evolx.Cli.Commands.Dv.Solution.ListSolutionCommand>("list").WithDescription("List solutions.");
+            solution.AddCommand<Evolx.Cli.Commands.Dv.Solution.ExportSolutionCommand>("export").WithDescription("Export a solution to .zip.");
+            solution.AddCommand<Evolx.Cli.Commands.Dv.Solution.ImportSolutionCommand>("import").WithDescription("Import a solution .zip and wait for completion.");
+            solution.AddCommand<Evolx.Cli.Commands.Dv.Solution.ImportStatusCommand>("import-status").WithDescription("Show or watch an import job's progress.");
+            solution.AddCommand<Evolx.Cli.Commands.Dv.Solution.PublishSolutionCommand>("publish").WithDescription("Publish customizations (all or by component).");
+            solution.AddCommand<Evolx.Cli.Commands.Dv.Solution.RemoveComponentCommand>("remove-component").WithDescription("Remove a component from a solution.");
+        });
     });
 
     // ev pp ... (Power Platform admin)
