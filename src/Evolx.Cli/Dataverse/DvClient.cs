@@ -161,8 +161,19 @@ public sealed class DvClient : IDisposable
 
     /// <summary>POST a record body (caller-formatted JSON string) with Prefer: return=representation.</summary>
     public Task<JsonElement> CreateAsync(string entitySet, string jsonBody, CancellationToken ct = default)
+        => CreateAsync(entitySet, jsonBody, solutionUniqueName: null, ct);
+
+    /// <summary>
+    /// POST a record into a specific solution by setting MSCRM.SolutionUniqueName.
+    /// Dataverse accepts that header on data API record creates for solution-aware
+    /// entities (web resources, workflows, etc.).
+    /// </summary>
+    public Task<JsonElement> CreateAsync(string entitySet, string jsonBody, string? solutionUniqueName, CancellationToken ct = default)
     {
         var headers = new Dictionary<string, string>(DataverseHeaders) { ["Prefer"] = "return=representation" };
+        if (!string.IsNullOrEmpty(solutionUniqueName))
+            headers["MSCRM.SolutionUniqueName"] = solutionUniqueName;
+
         // Parse-and-resend: validates the JSON up front and lets HttpGateway encode it.
         // JsonContent.Create produces UTF-8 with charset header by default.
         using var doc = JsonDocument.Parse(jsonBody);
@@ -513,6 +524,113 @@ public sealed class DvClient : IDisposable
     {
         try { return await GetJsonAsync($"importjobs({jobId})", ct); }
         catch (HttpFailure ex) when (ex.Status == System.Net.HttpStatusCode.NotFound) { return null; }
+    }
+
+    // -------------------------------------------------------------- Web resources
+
+    /// <summary>List web resources, optionally filtered by name substring.</summary>
+    public Task<JsonElement> ListWebResourcesAsync(string? nameContains, CancellationToken ct = default)
+    {
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select", "webresourceid,name,displayname,webresourcetype,iscustomizable"),
+            new("$filter", string.IsNullOrEmpty(nameContains)
+                ? null
+                : $"contains(name,'{OData.EscapeLiteral(nameContains)}')"),
+            new("$orderby", "name asc"),
+        });
+        return GetJsonAsync("webresourceset" + qs, ct);
+    }
+
+    /// <summary>Look up a web resource by name. Returns the existing row (including content) or null.</summary>
+    public async Task<JsonElement?> TryGetWebResourceAsync(string name, CancellationToken ct = default)
+    {
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select", "webresourceid,name,displayname,description,content,webresourcetype,languagecode"),
+            new("$filter", $"name eq '{OData.EscapeLiteral(name)}'"),
+        });
+        var root = await GetJsonAsync("webresourceset" + qs, ct);
+        if (root.TryGetProperty("value", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var row in arr.EnumerateArray()) return row.Clone();
+        }
+        return null;
+    }
+
+    // -------------------------------------------------------------- N:N association ($ref)
+
+    /// <summary>
+    /// Associate (POST) a target row into an N:N collection. Used for role assignments,
+    /// team membership, and similar many-to-many wiring. <paramref name="collectionPath"/>
+    /// is the navigation property name (e.g. <c>systemuserroles_association</c>);
+    /// <paramref name="targetEntitySet"/>/<paramref name="targetId"/> identify the other side.
+    /// </summary>
+    public Task AssociateAsync(string sourceEntitySet, string sourceId, string collectionPath, string targetEntitySet, string targetId, CancellationToken ct = default)
+    {
+        var body = new Dictionary<string, object?> { ["@odata.id"] = $"{_baseUrl}{targetEntitySet}({targetId})" };
+        var json = JsonSerializer.Serialize(body, HttpGateway.JsonOptions);
+        return HttpGateway.SendStringNoContentAsync(
+            HttpMethod.Post,
+            $"{_baseUrl}{sourceEntitySet}({sourceId})/{collectionPath}/$ref",
+            body: json,
+            contentType: "application/json",
+            headers: DataverseHeaders,
+            bearerToken: _token,
+            ct: ct);
+    }
+
+    /// <summary>Disassociate (DELETE) a target row from an N:N collection.</summary>
+    public Task DisassociateAsync(string sourceEntitySet, string sourceId, string collectionPath, string targetEntitySet, string targetId, CancellationToken ct = default)
+    {
+        var url = $"{_baseUrl}{sourceEntitySet}({sourceId})/{collectionPath}/$ref?$id={Uri.EscapeDataString($"{_baseUrl}{targetEntitySet}({targetId})")}";
+        return HttpGateway.SendNoContentAsync(
+            HttpMethod.Delete, url,
+            headers: DataverseHeaders,
+            bearerToken: _token,
+            ct: ct);
+    }
+
+    // -------------------------------------------------------------- Plugin registration
+
+    /// <summary>List plugin assemblies, optionally filtered by name.</summary>
+    public Task<JsonElement> ListPluginAssembliesAsync(string? nameContains, CancellationToken ct = default)
+    {
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select", "pluginassemblyid,name,version,publickeytoken,isolationmode"),
+            new("$filter", string.IsNullOrEmpty(nameContains)
+                ? null
+                : $"contains(name,'{OData.EscapeLiteral(nameContains)}')"),
+            new("$orderby", "name asc"),
+        });
+        return GetJsonAsync("pluginassemblies" + qs, ct);
+    }
+
+    /// <summary>List plugin types under one assembly id.</summary>
+    public Task<JsonElement> ListPluginTypesAsync(Guid assemblyId, CancellationToken ct = default)
+    {
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select", "plugintypeid,typename,friendlyname,name"),
+            new("$filter", $"_pluginassemblyid_value eq {assemblyId}"),
+            new("$orderby", "typename asc"),
+        });
+        return GetJsonAsync("plugintypes" + qs, ct);
+    }
+
+    /// <summary>List SDK message processing steps for one plugin type.</summary>
+    public Task<JsonElement> ListPluginStepsAsync(Guid pluginTypeId, CancellationToken ct = default)
+    {
+        var qs = QueryString.Build(new KeyValuePair<string, string?>[]
+        {
+            new("$select",
+                "sdkmessageprocessingstepid,name,mode,stage,rank,filteringattributes," +
+                "configuration,statecode,supporteddeployment,asyncautodelete"),
+            new("$filter", $"_plugintypeid_value eq {pluginTypeId}"),
+            new("$orderby", "stage asc,rank asc"),
+        });
+        return GetJsonAsync("sdkmessageprocessingsteps" + qs, ct);
     }
 
     public void Dispose() { /* no per-instance resources */ }

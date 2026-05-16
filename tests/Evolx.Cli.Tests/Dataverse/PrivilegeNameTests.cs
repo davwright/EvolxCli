@@ -46,4 +46,32 @@ public sealed class PrivilegeNameTests
     {
         PrivilegeName.DepthLabel(mask).Should().Be(expected);
     }
+
+    [Theory]
+    [InlineData("Basic", 1)]
+    [InlineData("basic", 1)]
+    [InlineData("User", 1)]
+    [InlineData("Local", 2)]
+    [InlineData("BU", 2)]
+    [InlineData("Deep", 4)]
+    [InlineData("Parent-BU", 4)]
+    [InlineData("Global", 8)]
+    [InlineData("Org", 8)]
+    [InlineData("1", 1)]
+    [InlineData("8", 8)]
+    public void TryParseDepth_handles_friendly_names(string input, int expected)
+    {
+        PrivilegeName.TryParseDepth(input, out var v).Should().BeTrue();
+        v.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("nonsense")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void TryParseDepth_rejects_invalid_inputs(string? input)
+    {
+        PrivilegeName.TryParseDepth(input, out var v).Should().BeFalse();
+        v.Should().Be(0);
+    }
 }

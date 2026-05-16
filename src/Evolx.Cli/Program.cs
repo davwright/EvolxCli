@@ -130,6 +130,46 @@ app.Configure(config =>
             solution.AddCommand<Evolx.Cli.Commands.Dv.Solution.PublishSolutionCommand>("publish").WithDescription("Publish customizations (all or by component).");
             solution.AddCommand<Evolx.Cli.Commands.Dv.Solution.RemoveComponentCommand>("remove-component").WithDescription("Remove a component from a solution.");
         });
+
+        // ev dv webresource ... — web resource read/push/publish.
+        dv.AddBranch("webresource", wr =>
+        {
+            wr.SetDescription("Web resource verbs: list, push (create/update), publish.");
+            wr.AddCommand<Evolx.Cli.Commands.Dv.WebResource.ListWebResourceCommand>("list").WithDescription("List web resources.");
+            wr.AddCommand<Evolx.Cli.Commands.Dv.WebResource.PushWebResourceCommand>("push").WithDescription("Push a local file as a web resource (create or update).");
+            wr.AddCommand<Evolx.Cli.Commands.Dv.WebResource.PublishWebResourceCommand>("publish").WithDescription("Publish one web resource by name.");
+        });
+
+        // ev dv plugin ... — plugin registration read + manifest-driven sync.
+        dv.AddBranch("plugin", plugin =>
+        {
+            plugin.SetDescription("Plugin registration verbs: list and (manifest-driven) sync.");
+            plugin.AddCommand<Evolx.Cli.Commands.Dv.Plugin.ListPluginCommand>("list").WithDescription("List plugin assemblies / types / steps.");
+            plugin.AddCommand<Evolx.Cli.Commands.Dv.Plugin.SyncPluginCommand>("sync").WithDescription("Diff a plugin manifest vs Dataverse and print the plan.");
+        });
+
+        // ev dv user-role ... — assign / unassign roles to users.
+        dv.AddBranch("user-role", ur =>
+        {
+            ur.SetDescription("User-role assignments: assign / unassign.");
+            ur.AddCommand<Evolx.Cli.Commands.Dv.Security.AssignUserRoleCommand>("assign").WithDescription("Assign a role to a user.");
+            ur.AddCommand<Evolx.Cli.Commands.Dv.Security.UnassignUserRoleCommand>("unassign").WithDescription("Remove a role from a user.");
+        });
+
+        // ev dv table-access ... — CRUD privileges by table (show/set).
+        dv.AddBranch("table-access", ta =>
+        {
+            ta.SetDescription("CRUD privilege view + grant for a table.");
+            ta.AddCommand<Evolx.Cli.Commands.Dv.Security.TableAccessCommand>("show").WithDescription("Show roles + CRUD depth on a table.");
+            ta.AddCommand<Evolx.Cli.Commands.Dv.Security.SetTableAccessCommand>("set").WithDescription("Grant CRUD privileges on a table to a role.");
+        });
+
+        // Role mutation verbs. The existing leaf `role <name>` (show one role) stays as-is —
+        // these mutating verbs sit alongside it.
+        dv.AddCommand<Evolx.Cli.Commands.Dv.Security.NewRoleCommand>("role-new")
+            .WithDescription("Create a new security role.");
+        dv.AddCommand<Evolx.Cli.Commands.Dv.Security.SetRolePrivilegeCommand>("role-set-privilege")
+            .WithDescription("Grant a privilege at a depth to a role.");
     });
 
     // ev pp ... (Power Platform admin)

@@ -41,4 +41,21 @@ internal static class PrivilegeName
         0 => "(none)",
         _ => $"mask={mask}",
     };
+
+    /// <summary>
+    /// Parse a friendly depth name (Basic|Local|Deep|Global) into the int value the
+    /// AddPrivilegesRole action expects.
+    /// Mapping: Basic=1 (User), Local=2 (BU), Deep=4 (Parent-BU), Global=8 (Org).
+    /// </summary>
+    public static bool TryParseDepth(string? depth, out int value)
+    {
+        switch (depth?.Trim().ToLowerInvariant())
+        {
+            case "basic": case "user": case "1": value = 1; return true;
+            case "local": case "bu": case "2": value = 2; return true;
+            case "deep": case "parentbu": case "parent-bu": case "4": value = 4; return true;
+            case "global": case "org": case "8": value = 8; return true;
+            default: value = 0; return false;
+        }
+    }
 }
